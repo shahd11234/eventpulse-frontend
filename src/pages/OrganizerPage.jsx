@@ -1,35 +1,147 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { EVENTS } from '../data/mockData';
+import { eventsAPI } from '../services/api';
 import './OrganizerPage.css';
+
+const EMPTY_FORM = { title: '', category: 'Technology', date: '', time: '', location: '', price: '', capacity: '', description: '', image: '' };
 
 const OrganizerPage = () => {
   const { user, addNotification } = useApp();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('events');
+  const [orgEvents, setOrgEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newEvent, setNewEvent] = useState({ title: '', category: 'Technology', date: '', time: '', location: '', price: '', capacity: '', description: '' });
+  const [newEvent, setNewEvent] = useState(EMPTY_FORM);
+  const [creating, setCreating] = useState(false);
+
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [editForm, setEditForm] = useState(EMPTY_FORM);
+  const [updating, setUpdating] = useState(false);
 
   if (!user || (user.role !== 'organizer' && user.role !== 'admin')) {
     navigate('/login'); return null;
   }
 
-  const orgEvents = EVENTS.slice(0, 5);
+  useEffect(() => {
+    fetchEvents();
+  }, []);
 
-  const handleCreateEvent = (e) => {
-    e.preventDefault();
-    addNotification('Event created successfully! 🎉', 'success');
-    setShowCreateModal(false);
-    setNewEvent({ title: '', category: 'Technology', date: '', time: '', location: '', price: '', capacity: '', description: '' });
+  const fetchEvents = async () => {
+    try {
+      setLoading(true);
+      const data = await eventsAPI.getAll();
+      setOrgEvents(data);
+    } catch (err) {
+      addNotification('Failed to load events: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const handleCreateEvent = async (e) => {
+    e.preventDefault();
+    try {
+      setCreating(true);
+      await eventsAPI.create({
+        ...newEvent,
+        price: Number(newEvent.price) || 0,
+        capacity: Number(newEvent.capacity) || 100,
+      });
+      addNotification('Event created successfully!', 'success');
+      setShowCreateModal(false);
+      setNewEvent(EMPTY_FORM);
+      await fetchEvents();
+    } catch (err) {
+      addNotification('Failed to create event: ' + err.message, 'error');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const openEditModal = (event) => {
+    setEditingEvent(event);
+    setEditForm({
+      title: event.title || '',
+      category: event.category || 'Technology',
+      date: event.date ? event.date.slice(0, 10) : '',
+      time: event.time || '',
+      location: event.location || '',
+      price: event.price ?? '',
+      capacity: event.capacity ?? '',
+      description: event.description || '',
+      image: event.image || '',
+    });
+  };
+
+  const handleUpdateEvent = async (e) => {
+    e.preventDefault();
+    try {
+      setUpdating(true);
+      await eventsAPI.update(editingEvent._id || editingEvent.id, {
+        ...editForm,
+        price: Number(editForm.price) || 0,
+        capacity: Number(editForm.capacity) || 100,
+      });
+      addNotification('Event updated successfully!', 'success');
+      setEditingEvent(null);
+      await fetchEvents();
+    } catch (err) {
+      addNotification('Failed to update event: ' + err.message, 'error');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleDeleteEvent = async (event) => {
+    if (!window.confirm(`Delete "${event.title}"? This cannot be undone.`)) return;
+    try {
+      await eventsAPI.delete(event._id || event.id);
+      addNotification('Event deleted.', 'success');
+      await fetchEvents();
+    } catch (err) {
+      addNotification('Failed to delete event: ' + err.message, 'error');
+    }
+  };
+
+  const totalAttendees = orgEvents.reduce((a, e) => a + (Number(e.attendees) || 0), 0);
+  const totalRevenue = orgEvents.reduce((a, e) => a + (Number(e.price) || 0) * (Number(e.attendees) || 0), 0);
+  const avgRating = orgEvents.length
+    ? (orgEvents.reduce((a, e) => a + (Number(e.rating) || 0), 0) / orgEvents.length).toFixed(1)
+    : '—';
 
   const stats = [
     { label: 'Total Events', value: orgEvents.length, icon: '🎉', color: '#f0a500' },
-    { label: 'Total Attendees', value: orgEvents.reduce((a, e) => a + e.attendees, 0).toLocaleString(), icon: '👥', color: '#3b82f6' },
-    { label: 'Revenue (AED)', value: orgEvents.reduce((a, e) => a + e.price * e.attendees, 0).toLocaleString(), icon: '💰', color: '#22c55e' },
-    { label: 'Avg Rating', value: (orgEvents.reduce((a, e) => a + e.rating, 0) / orgEvents.length).toFixed(1), icon: '⭐', color: '#e8445a' },
+    { label: 'Total Attendees', value: totalAttendees.toLocaleString(), icon: '👥', color: '#3b82f6' },
+    { label: 'Revenue (AED)', value: totalRevenue.toLocaleString(), icon: '💰', color: '#22c55e' },
+    { label: 'Avg Rating', value: avgRating, icon: '⭐', color: '#e8445a' },
   ];
+
+  const EventFormFields = ({ values, onChange }) => (
+    <>
+      <div className="form-group"><label>Event Title *</label><input required value={values.title} onChange={e => onChange({ ...values, title: e.target.value })} placeholder="Enter event title" /></div>
+      <div className="form-row-2">
+        <div className="form-group"><label>Category</label>
+          <select value={values.category} onChange={e => onChange({ ...values, category: e.target.value })}>
+            {['Technology', 'Music', 'Business', 'Cultural', 'Health', 'Arts', 'Food', 'Sports'].map(c => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+        <div className="form-group"><label>Price (AED)</label><input type="number" min={0} value={values.price} onChange={e => onChange({ ...values, price: e.target.value })} placeholder="0 for free" /></div>
+      </div>
+      <div className="form-row-2">
+        <div className="form-group"><label>Date *</label><input required type="date" value={values.date} onChange={e => onChange({ ...values, date: e.target.value })} /></div>
+        <div className="form-group"><label>Time *</label><input required type="time" value={values.time} onChange={e => onChange({ ...values, time: e.target.value })} /></div>
+      </div>
+      <div className="form-group"><label>Location *</label><input required value={values.location} onChange={e => onChange({ ...values, location: e.target.value })} placeholder="Venue name, City" /></div>
+      <div className="form-row-2">
+        <div className="form-group"><label>Capacity</label><input type="number" min={1} value={values.capacity} onChange={e => onChange({ ...values, capacity: e.target.value })} placeholder="Max attendees" /></div>
+        <div className="form-group"><label>Image URL</label><input value={values.image} onChange={e => onChange({ ...values, image: e.target.value })} placeholder="https://..." /></div>
+      </div>
+      <div className="form-group"><label>Description</label><textarea value={values.description} onChange={e => onChange({ ...values, description: e.target.value })} placeholder="Describe your event..." /></div>
+    </>
+  );
 
   return (
     <div className="page-wrapper organizer-page">
@@ -71,25 +183,33 @@ const OrganizerPage = () => {
             <div className="table-header">
               <span>Event</span><span>Date</span><span>Attendees</span><span>Revenue</span><span>Status</span><span>Actions</span>
             </div>
-            {orgEvents.map(event => (
-              <div key={event.id} className="table-row">
+            {loading ? (
+              <div style={{ padding: '2rem', textAlign: 'center', color: '#aaa' }}>Loading events...</div>
+            ) : orgEvents.length === 0 ? (
+              <div style={{ padding: '2rem', textAlign: 'center', color: '#aaa' }}>No events yet. Create your first event!</div>
+            ) : orgEvents.map(event => (
+              <div key={event._id || event.id} className="table-row">
                 <div className="table-event-cell">
-                  <img src={event.image} alt="" />
+                  {event.image && <img src={event.image} alt="" />}
                   <div>
                     <p className="table-event-title">{event.title}</p>
                     <span className="badge badge-gold">{event.category}</span>
                   </div>
                 </div>
-                <span>{new Date(event.date).toLocaleDateString('en-AE', { day:'numeric', month:'short', year:'numeric' })}</span>
+                <span>{event.date ? new Date(event.date).toLocaleDateString('en-AE', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</span>
                 <span>
-                  <div className="mini-bar"><div className="mini-fill" style={{ width: `${(event.attendees / event.capacity) * 100}%` }} /></div>
-                  {event.attendees}/{event.capacity}
+                  {event.capacity ? (
+                    <>
+                      <div className="mini-bar"><div className="mini-fill" style={{ width: `${Math.min(((event.attendees || 0) / event.capacity) * 100, 100)}%` }} /></div>
+                      {event.attendees || 0}/{event.capacity}
+                    </>
+                  ) : (event.attendees || 0)}
                 </span>
-                <span className="revenue">AED {(event.price * event.attendees).toLocaleString()}</span>
-                <span><span className="badge badge-green">Active</span></span>
+                <span className="revenue">AED {((event.price || 0) * (event.attendees || 0)).toLocaleString()}</span>
+                <span><span className={`badge ${event.status === 'cancelled' ? 'badge-red' : 'badge-green'}`}>{event.status || 'Active'}</span></span>
                 <div className="table-actions">
-                  <button className="action-btn edit">✏️ Edit</button>
-                  <button className="action-btn delete">🗑️ Delete</button>
+                  <button className="action-btn edit" onClick={() => openEditModal(event)}>✏️ Edit</button>
+                  <button className="action-btn delete" onClick={() => handleDeleteEvent(event)}>🗑️ Delete</button>
                 </div>
               </div>
             ))}
@@ -101,7 +221,7 @@ const OrganizerPage = () => {
             <div className="analytics-card">
               <h4>Bookings This Month</h4>
               <div className="bar-chart">
-                {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d, i) => (
+                {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d) => (
                   <div key={d} className="bar-col">
                     <div className="bar" style={{ height: `${30 + Math.random() * 70}%` }} />
                     <span>{d}</span>
@@ -123,12 +243,12 @@ const OrganizerPage = () => {
             </div>
             <div className="analytics-card">
               <h4>Revenue Trend</h4>
-              <p className="analytics-big">AED {(orgEvents.reduce((a,e) => a + e.price * e.attendees, 0)).toLocaleString()}</p>
+              <p className="analytics-big">AED {totalRevenue.toLocaleString()}</p>
               <p className="analytics-sub">↑ 18% from last month</p>
             </div>
             <div className="analytics-card">
               <h4>Avg Ticket Price</h4>
-              <p className="analytics-big">AED {Math.round(orgEvents.filter(e=>e.price>0).reduce((a,e)=>a+e.price,0)/orgEvents.filter(e=>e.price>0).length)}</p>
+              <p className="analytics-big">AED {orgEvents.filter(e => e.price > 0).length ? Math.round(orgEvents.filter(e => e.price > 0).reduce((a, e) => a + e.price, 0) / orgEvents.filter(e => e.price > 0).length) : 0}</p>
               <p className="analytics-sub">Across all paid events</p>
             </div>
           </div>
@@ -152,7 +272,7 @@ const OrganizerPage = () => {
                 </div>
                 <span>{a.event}</span>
                 <span><span className="badge badge-gold">{a.ticket}</span></span>
-                <span>{new Date(a.date).toLocaleDateString('en-AE', { day:'numeric', month:'short' })}</span>
+                <span>{new Date(a.date).toLocaleDateString('en-AE', { day: 'numeric', month: 'short' })}</span>
                 <span><span className={`badge ${a.status === 'Checked In' ? 'badge-green' : 'badge-blue'}`}>{a.status}</span></span>
               </div>
             ))}
@@ -169,25 +289,29 @@ const OrganizerPage = () => {
               <button className="modal-close" onClick={() => setShowCreateModal(false)}>✕</button>
             </div>
             <form className="modal-form" onSubmit={handleCreateEvent}>
-              <div className="form-group"><label>Event Title *</label><input required value={newEvent.title} onChange={e => setNewEvent({ ...newEvent, title: e.target.value })} placeholder="Enter event title" /></div>
-              <div className="form-row-2">
-                <div className="form-group"><label>Category</label>
-                  <select value={newEvent.category} onChange={e => setNewEvent({ ...newEvent, category: e.target.value })}>
-                    {['Technology', 'Music', 'Business', 'Cultural', 'Health', 'Arts', 'Food', 'Sports'].map(c => <option key={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div className="form-group"><label>Price (AED)</label><input type="number" min={0} value={newEvent.price} onChange={e => setNewEvent({ ...newEvent, price: e.target.value })} placeholder="0 for free" /></div>
-              </div>
-              <div className="form-row-2">
-                <div className="form-group"><label>Date *</label><input required type="date" value={newEvent.date} onChange={e => setNewEvent({ ...newEvent, date: e.target.value })} /></div>
-                <div className="form-group"><label>Time *</label><input required type="time" value={newEvent.time} onChange={e => setNewEvent({ ...newEvent, time: e.target.value })} /></div>
-              </div>
-              <div className="form-group"><label>Location *</label><input required value={newEvent.location} onChange={e => setNewEvent({ ...newEvent, location: e.target.value })} placeholder="Venue name, City" /></div>
-              <div className="form-group"><label>Capacity</label><input type="number" min={1} value={newEvent.capacity} onChange={e => setNewEvent({ ...newEvent, capacity: e.target.value })} placeholder="Max attendees" /></div>
-              <div className="form-group"><label>Description</label><textarea value={newEvent.description} onChange={e => setNewEvent({ ...newEvent, description: e.target.value })} placeholder="Describe your event..." /></div>
+              <EventFormFields values={newEvent} onChange={setNewEvent} />
               <div className="modal-actions">
                 <button type="button" className="btn btn-dark" onClick={() => setShowCreateModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">✓ Create Event</button>
+                <button type="submit" className="btn btn-primary" disabled={creating}>{creating ? 'Creating...' : '✓ Create Event'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT EVENT MODAL */}
+      {editingEvent && (
+        <div className="modal-overlay" onClick={() => setEditingEvent(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Edit Event</h3>
+              <button className="modal-close" onClick={() => setEditingEvent(null)}>✕</button>
+            </div>
+            <form className="modal-form" onSubmit={handleUpdateEvent}>
+              <EventFormFields values={editForm} onChange={setEditForm} />
+              <div className="modal-actions">
+                <button type="button" className="btn btn-dark" onClick={() => setEditingEvent(null)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={updating}>{updating ? 'Saving...' : '✓ Save Changes'}</button>
               </div>
             </form>
           </div>
