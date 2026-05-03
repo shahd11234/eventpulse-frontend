@@ -21,13 +21,13 @@ const OrganizerPage = () => {
   const [editForm, setEditForm] = useState(EMPTY_FORM);
   const [updating, setUpdating] = useState(false);
 
-  if (!user || (user.role !== 'organizer' && user.role !== 'admin')) {
-    navigate('/login'); return null;
-  }
-
   useEffect(() => {
+    if (!user || (user.role !== 'organizer' && user.role !== 'admin')) {
+      navigate('/login');
+      return;
+    }
     fetchEvents();
-  }, []);
+  }, [user]);
 
   const fetchEvents = async () => {
     try {
