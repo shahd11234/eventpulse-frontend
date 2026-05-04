@@ -21,14 +21,6 @@ const OrganizerPage = () => {
   const [editForm, setEditForm] = useState(EMPTY_FORM);
   const [updating, setUpdating] = useState(false);
 
-  useEffect(() => {
-    if (!user || (user.role !== 'organizer' && user.role !== 'admin')) {
-      navigate('/login');
-      return;
-    }
-    fetchEvents();
-  }, [user]);
-
   const fetchEvents = async () => {
     try {
       setLoading(true);
@@ -40,6 +32,15 @@ const OrganizerPage = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!user || (user.role !== 'organizer' && user.role !== 'admin')) {
+      navigate('/login');
+      return;
+    }
+    fetchEvents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const handleCreateEvent = async (e) => {
     e.preventDefault();
